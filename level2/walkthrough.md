@@ -211,7 +211,7 @@ void func()
 }
 ```
 
-To do this we need to reach the return address position. [How to reach return address position](https://github.com/HugoKovac/Rainfall/tree/main/level2/walkthrough.md#eip-register-anchor)
+To do this we need to reach the return address position. [How to reach return address position](https://github.com/Junya42/Rainfall/tree/main/level2/walkthrough.md#eip-register-anchor)
 Which is at offset: 68 (buffer 64 bytes + saved_ebp 4 bytes)
 
 Then we need to retrieve the address of libc:system.
