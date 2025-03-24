@@ -27,5 +27,5 @@ run:
 		exit 1; \
 	fi; \
 	echo "Starting $$ISO using QEMU"; \
-	sudo qemu-system-x86_64 -nic user,hostfwd=tcp::4242-:4242 -enable-kvm -m 2G -boot d -cdrom "$$ISO" -vga virtio
+	qemu-system-x86_64 -nic user,hostfwd=tcp::4240-:4242 -enable-kvm -m 2G -boot d -cdrom "$$ISO" -vga virtio
 
