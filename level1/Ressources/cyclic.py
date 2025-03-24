@@ -12,11 +12,8 @@ def generate_cyclic_pattern(size):
     with digits 0 to 9 appended.
     """
     pattern = ""
-    # Iterate over uppercase letters for the first character
     for first in range(ord('A'), ord('Z') + 1):
-        # For each uppercase letter, iterate over lowercase letters for the second character
         for second in range(ord('a'), ord('z') + 1):
-            # For each two-letter combination, append digits 0 to 9
             for d in range(10):
                 group = chr(first) + chr(second) + str(d)
                 pattern += group
@@ -76,19 +73,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
-    
-void myfunction() {
-
-    int a = 0;
-    int b = 0;
-    int c = 0;
-
-    a += 1;
-    b += 2;
-    c += 3;
-    
-    int total = a + b + c;
-    exit();
-    printf("Total: %d\n", total);
-}
