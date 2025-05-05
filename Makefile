@@ -7,6 +7,13 @@ ISO ?= $(shell ls *.iso 2>/dev/null | head -n 1)
 # URL to download the iso if not available in current dir
 ISO_URL := https://cdn.intra.42.fr/isos/$(CURRENT_DIR_NAME).iso
 
+HOSTNAME := $(shell uname -n)
+ifeq ($(HOSTNAME),SapphireWIN)
+	QEMU_CMD := sudo qemu-system-x86_64
+else
+	QEMU_CMD := qemu-system-x86_64
+endif
+
 .PHONY: run
 run:
 	@if [ -z "$(ISO)" ]; then \
@@ -27,5 +34,5 @@ run:
 		exit 1; \
 	fi; \
 	echo "Starting $$ISO using QEMU"; \
-	qemu-system-x86_64 -nic user,hostfwd=tcp::4240-:4242 -enable-kvm -m 2G -boot d -cdrom "$$ISO" -vga virtio
+	$(QEMU_CMD) -nic user,hostfwd=tcp::4240-:4242 -enable-kvm -m 2G -boot d -cdrom "$$ISO" -vga virtio
 
